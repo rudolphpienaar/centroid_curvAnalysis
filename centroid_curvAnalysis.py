@@ -179,7 +179,6 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         self._csv = csv.DictReader(file(self._str_centroidFile, "rb"), delimiter=" ", skipinitialspace=True)
         for entry in self._csv:
             self._l_subject.append(entry['Subj'])
-        print self._l_subject
         
         # Build core data dictionary that contains all the centroids
         self._d_centroids               = misc.dict_init(self._l_subject)
@@ -220,7 +219,6 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                         self._d_centroids[entry['Subj']][self._str_hemi][self._str_surface][self._str_curv]['neg'] = v_n
                         self._d_centroids[entry['Subj']][self._str_hemi][self._str_surface][self._str_curv]['pos'] = v_p
                         self._d_centroids[entry['Subj']][self._str_hemi][self._str_surface][self._str_curv]['natural'] = v_c
-        print self._d_centroids
 
     def initialize(self):
         '''
@@ -238,7 +236,6 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         # Set the stages
         self._pipeline.stages_canRun(False)
         lst_stages = list(self._stageslist)
-        print self._stageslist
         for index in lst_stages:
             stage = self._pipeline.stage_get(int(index))
             stage.canRun(True)
@@ -331,7 +328,6 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                                         self._d_cloud[group][hemi][surface][curv][ctype] = \
                                         np.vstack((self._d_cloud[group][hemi][surface][curv][ctype],
                                         self._d_centroids[subj][hemi][surface][curv][ctype]))
-                            print self._d_cloud[group][hemi][surface][curv][ctype]
                             self._c_cloud[group][hemi][surface][curv][ctype] = \
                                 C_centroidCloud(cloud=self._d_cloud[group][hemi][surface][curv][ctype])
                             self._c_cloud[group][hemi][surface][curv][ctype].confidenceBoundary_find()
@@ -350,12 +346,11 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         '''
         Generate the actual centroid plot for given parameters
         '''
-        pylab.figure()
-        #pylab.axis('equal')
-        pylab.grid()
         for hemi in self._l_hemi:
             for surface in self._l_surface:
                 for curv in self._l_curv:
+                    pylab.figure()
+                    pylab.grid()
                     _d_plot     = misc.dict_init(self._l_gid)
                     for group in self._l_gid:
                         for ctype in self._l_type:
@@ -366,7 +361,7 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                             if np.isnan(np.sum(_v0)): continue
                             _str_fileName = '%s-%s.%s.%s.%s.txt' % (group, hemi, surface, curv, ctype)
                             np.savetxt(_str_fileName, _M_cloud, fmt='%10.7f')
-                            print _str_fileName
+                            print("Saving centroid cloud data to %s" % _str_fileName)
                             _d_plot[group], = plot(_v0, _v1,
                                                     color = self._l_color[int(group)-1],
                                                    marker = self._l_marker[int(group)-1],
@@ -375,6 +370,9 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                             self._d_poly[group][hemi][surface][curv][ctype] = \
                                 self.deviation_plot(self._d_boundary[group][hemi][surface][curv][ctype],
                                                self._l_color[int(group)-1])
+                    pylab.title('%s-%s-%s-%s' % (args.dataDir, hemi, surface, curv))
+                    pylab.xlabel('group mean cuvature')
+                    pylab.ylabel('group expected occurrence')
         pylab.show()
 
                 
@@ -518,7 +516,7 @@ if __name__ == "__main__":
 
     # always show the help if no arguments were specified
     if len( sys.argv ) == 1:
-        print synopsis()
+        print(synopsis())
         sys.exit( 1 )
 
     l_subj      = []
@@ -619,10 +617,7 @@ if __name__ == "__main__":
         pipeline.centroids_read()
         pipeline.groups_determine()
         pipeline.clouds_gather()
-        for pipeline._str_hemi in lst_hemi:
-            for pipeline._str_surface in lst_surface:
-                for pipeline._str_curv in lst_curv:
-                    pipeline.clouds_plot(pipeline.hemi(), pipeline.surface(), pipeline.curv())
+        pipeline.clouds_plot(pipeline.hemi(), pipeline.surface(), pipeline.curv())
         os.chdir(pipeline.startDir())
         return True
     stage0.def_stage(f_stage0callback, obj=stage0, pipe=Ccloud)
