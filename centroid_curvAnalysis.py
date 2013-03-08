@@ -415,6 +415,10 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         Returns a boolean True/False if a negative centroid exists
         for the passed str_curv.
         '''
+        ret = True
+        l_noNeg = ['C', 'BE', 'S', 'FI']
+        if str_curv in l_noNeg: ret = False
+        return ret
         
         
     def dict_ninit(self, *l_args):
@@ -513,6 +517,8 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                 for self._str_curv in l_curv:
                     for self._str_gid in l_group:
                         for self._str_ctype in l_type:
+                            if self._str_ctype == 'neg' and not\
+                            self.negCentroid_exists(self._str_curv): continue
                             ret = func_callBack(**callBackArgs)
         return ret
 
@@ -558,6 +564,8 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                 for self._str_surface in l_surface:
                     for self._str_curv in l_curv:
                         for self._str_ctype in l_type:
+                            if self._str_ctype == 'neg' and not\
+                            self.negCentroid_exists(self._str_curv): continue
                             ret = func_callBack(**callBackArgs)
         return ret
 
@@ -633,6 +641,8 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                     for group in self._l_gid:
                         for ctype in self._l_type:
                             if ctype == 'natural': continue
+                            if ctype == 'neg' and not self.negCentroid_exists(curv):
+                                continue
                             _M_cloud = self._c_cloud[group][hemi][surface][curv][ctype].cloud()
                             _v0 = _M_cloud[:,0]
                             _v1 = _M_cloud[:,1]
