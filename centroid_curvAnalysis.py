@@ -7,30 +7,35 @@
     
 '''
 
-
+# Sytem imports
 import  os
 import  sys
 import  string
 import  argparse
+import  socket
+
+# System data organization imports
+import  csv
+from    collections             import  defaultdict
+import  itertools
+
+# Maths / statistical imports
+import  scipy.stats             as stats
+import  numpy                   as np
+import  pylab
+from    shapely.geometry        import  Point           as sgPoint
+from    shapely.geometry        import  Polygon         as sgPolygon
+from    shapely.geometry        import  MultiPolygon    as sgMultiPolygon
+
+# FNNDSC imports
 from    _common import systemMisc       as misc
 from    _common import crun
 from    C_centroidCloud import *
-
-import  numpy   as np
-import  pylab
-
 import  error
 import  message
 import  stage
-import  csv
-
 import  fnndsc  as base
-import  socket
 
-from    shapely.geometry        import  Point,Polygon,MultiPolygon
-from    collections             import  defaultdict
-
-import  itertools
 
 scriptName      = os.path.basename(sys.argv[0])
 
@@ -78,6 +83,12 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
     def l_curv(self):
         return self._l_curv
 
+    def l_gid(self):
+        return self._l_gid
+
+    def l_gidComb(self):
+        return self._l_gidComb
+
     def d_centroids(self):
         return self._d_centroids
 
@@ -106,6 +117,31 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
     def startDir(self):
         return self._str_workingDir
 
+    def verbosity(self, *args):
+        """
+        Get/set the boundary points.
+        """
+        if len(args):
+            self._verbosity = args[0]
+        else:
+            return self._verbosity
+
+    def showPlots(self, *args):
+        """
+        Get/set the boundary points.
+        """
+        if len(args):
+            self._showPlots = args[0]
+        else:
+            return self._showPlots
+
+
+    def vprint(self, astr_output, averbosity=1):
+        '''
+        Verbosity-aware print.
+        '''
+        if self._verbosity >= averbosity:
+            print(astr_output)
                     
     def __init__(self, **kwargs):
         '''
@@ -117,6 +153,9 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
 
         self._lw                        = 60
         self._rw                        = 20
+        self._verbosity                 = 0
+
+        self._b_showPlots               = False
 
         # Command line arg holders
         self._str_subjectDir            = ''
@@ -150,12 +189,14 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         # Lists for tracking groups
         self._l_gidTotal                = []
         self._l_gid                     = []
+        self._str_gidList               = '' # A string of the gid list
+        self._l_gidComb                 = []
 
         # Dictionaries for tracking data trees
         self._d_centroids               = {} # All the centroids per subject
         self._d_cloud                   = {} # Each group's cloud
         self._d_boundary                = {} # Each group's boundary
-        self._d_poly                    = {} # Each group's polygon boundary
+        self._d_poly                    = {} # Each group's *polygon* boundary
         self._d_polyArea                = {} # Each group's cloud area
         self._d_overlapLR               = {} # The left->right overlap norm
         self._d_overlapRL               = {} # The right->left overlap norm
@@ -271,6 +312,86 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                 #error.fatal(self, 'subjectDirnotExist')
 
 
+    def groupIntersections_initialize(self):
+        '''
+        Initializes all the combinations of the group IDs, taken two
+        at a time. This is used in determining the intersections
+        between all pairs of boundary polygons.
+
+        Builds the internal dictionaries that track this information.
+        
+        '''
+        self._str_gidList       = ''.join(self._l_gid)
+        self._l_gidComb         = list(itertools.combinations(self._str_gidList, 2))
+        for key in range(0, len(self._l_gidComb)):
+            self._l_gidComb[key] = ''.join(self._l_gidComb[key])
+        self._d_overlapLR       = self.dict_ninit(self._l_gidComb,
+                                                  self._l_hemi,
+                                                  self._l_surface,
+                                                  self._l_curv,
+                                                  self._l_type)
+        self._d_overlapRL       = self._d_overlapLR.copy()
+
+
+    def groupIntersections_determine(self, **kwargs):
+        '''
+        Determines the LR and RL overlap percentages between pairs
+        of intersecting polygon groups.
+        '''
+        group   = self._str_gid
+        hemi    = self._str_hemi
+        surface = self._str_surface
+        curv    = self._str_curv
+        ctype   = self._str_ctype
+
+        g1      = group[0]
+        g2      = group[1]
+        p1      = self._d_poly[g1][hemi][surface][curv][ctype]
+        p2      = self._d_poly[g2][hemi][surface][curv][ctype]
+        f_ar    = p1.area
+        f_al    = p2.area
+        f_or    = 0
+        f_ol    = 0
+
+        f_overlap = p1.intersection(p2).area
+        f_or    = f_overlap / f_ar
+        f_ol    = f_overlap / f_al
+        _str_fileName = '%s-%s-%s-centroids-analyze-%s.%s.%s.%s' % (ctype, g1, g2, hemi, curv, self._str_dataDir, surface)
+        self.vprint("%60s: %10.5f %10.5f" % (_str_fileName, f_ol, f_or), 1)
+        self._d_overlapLR[group][hemi][surface][curv][ctype]    = f_ol
+        self._d_overlapRL[group][hemi][surface][curv][ctype]    = f_or
+        misc.file_writeOnce('%s.txt-overlapL' % _str_fileName, '%s' % f_ol)
+        misc.file_writeOnce('%s.txt-overlapR' % _str_fileName, '%s' % f_or)
+
+
+    def groupTtest_determine(self, **kwargs):
+        '''
+        Determine the two-sided t-test on all pairwise combinations
+        of centroid clouds
+        '''
+        group   = self._str_gid
+        hemi    = self._str_hemi
+        surface = self._str_surface
+        curv    = self._str_curv
+        ctype   = self._str_ctype
+
+        g1      = group[0]
+        g2      = group[1]
+        v1      = self._d_cloud[g1][hemi][surface][curv][ctype]
+        v2      = self._d_cloud[g2][hemi][surface][curv][ctype]
+
+        v_tstat, v_pval = stats.ttest_ind(v1, v2)
+        f_pval  = np.linalg.norm(v_pval)
+        _str_fileName = '%s-%s-%s-pval-%s.%s.%s.%s' % (ctype, g1, g2, hemi, curv, self._str_dataDir, surface)
+        vstr_tstat = ' '.join('%10.6f'%F for F in v_tstat)
+        vstr_pval  = ' '.join('%10.6f'%F for F in v_pval)
+        self.vprint("%s, pvalue: (%s), pvalueN: %f" %\
+            (_str_fileName, vstr_pval, f_pval), 1)
+        if f_pval > 0.05:       misc.file_writeOnce('%s-ge5.txt' % _str_fileName, '%f' % f_pval)
+        if f_pval <= 0.05:      misc.file_writeOnce('%s-le5.txt' % _str_fileName, '%f' % f_pval)
+        if f_pval <= 0.01:      misc.file_writeOnce('%s-le1.txt' % _str_fileName, '%f' % f_pval)
+
+
     def groups_determine(self):
         '''
         Analyzes a given centroid table for all subjects and determines the
@@ -325,31 +446,35 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                                                   self._l_curv,
                                                   self._l_type)
 
-        self._d_cloud           = self._c_cloud.copy()
-        self._d_boundary        = self._c_cloud.copy()
-        self._d_poly            = self._c_cloud.copy()
-        self._d_polyArea        = self._c_cloud.copy()
+        self._d_cloud           = self.dict_ninit(self._l_gid,
+                                                  self._l_hemi,
+                                                  self._l_surface,
+                                                  self._l_curv,
+                                                  self._l_type)
+
+        self._d_boundary        = self.dict_ninit(self._l_gid,
+                                                  self._l_hemi,
+                                                  self._l_surface,
+                                                  self._l_curv,
+                                                  self._l_type)
+
+        self._d_poly            = self.dict_ninit(self._l_gid,
+                                                  self._l_hemi,
+                                                  self._l_surface,
+                                                  self._l_curv,
+                                                  self._l_type)
+
+        self._d_polyArea        = self.dict_ninit(self._l_gid,
+                                                  self._l_hemi,
+                                                  self._l_surface,
+                                                  self._l_curv,
+                                                  self._l_type)
 
 
-    def clouds_areaAnalyze(self):
+
+    def innerLoop_hscgt(self, func_callBack, *args, **callBackArgs):
         '''
-        Determine the areas of each cloud.
-        '''
-        for hemi in self._l_hemi:
-            for surface in self._l_surface:
-                for curv in self._l_curv:
-                    for group in self._l_gid:
-                        for ctype in self._l_type:
-                            _str_fileName = '%s-Ap%s.%s.%s.%s.%s.txt' % (ctype, group, hemi, curv, self._str_dataDir, surface)
-                            p = Polygon(self._d_boundary[group][hemi][surface][curv][ctype])
-                            f_A = p.area
-                            print("%60s: %10.5f" % (_str_fileName, f_A))
 
-
-
-
-    def innerLoop_hscgt(self, func_callBack, **callBackArgs):
-        '''
         A loop function that calls func_callBack(**callBackArgs)
         at the innermost loop the nested data dictionary structure.
 
@@ -360,22 +485,41 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         Note that internal tracking object variables, _str_gid ... _str_ctype
         are automatically updated by this script.
 
-        Additional specific arguments can be passed to callback using
-        dictionary kwargs.
+        The **callBackArgs is a generic dictionary holder that is interpreted
+        by both this loop controller and also passed down to the callback
+        function.
+
+        In the context of the loop controller, loop conditions can
+        be changed by passing appropriately name args in the
+        **callBackArgs structure.
 
         '''
-        ret = True
-        for self._str_hemi in self._l_hemi:
-            for self._str_surface in self._l_surface:
-                for self._str_curv in self._l_curv:
-                    for self._str_gid in self._l_gid:
-                        for self._str_ctype in self._l_type:
+        ret             = True
+        l_hemi          = self._l_hemi
+        l_surface       = self._l_surface
+        l_curv          = self._l_curv
+        l_group         = self._l_gid
+        l_type          = self._l_type
+        
+        for key, val in callBackArgs.iteritems():
+            if key == 'hemi':           l_hemi          = val
+            if key == 'surface':        l_surface       = val
+            if key == 'curv':           l_curv          = val
+            if key == 'group':          l_group         = val
+            if key == 'ctype':          l_type          = val
+        
+        for self._str_hemi in l_hemi:
+            for self._str_surface in l_surface:
+                for self._str_curv in l_curv:
+                    for self._str_gid in l_group:
+                        for self._str_ctype in l_type:
                             ret = func_callBack(**callBackArgs)
         return ret
 
         
     def innerLoop_ghsct(self, func_callBack, **callBackArgs):
         '''
+
         A loop function that calls func_callBack(**callBackArgs)
         at the innermost loop the nested data dictionary structure.
 
@@ -386,19 +530,37 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         Note that internal tracking object variables, _str_gid ... _str_ctype
         are automatically updated by this script.
 
-        Additional specific arguments can be passed to callback using
-        dictionary kwargs.
+        The **callBackArgs is a generic dictionary holder that is interpreted
+        by both this loop controller and also passed down to the callback
+        function.
+
+        In the context of the loop controller, loop conditions can
+        be changed by passing appropriately name args in the
+        **callBackArgs structure.
         
         '''
+        ret             = True
+        l_hemi          = self._l_hemi
+        l_surface       = self._l_surface
+        l_curv          = self._l_curv
+        l_group         = self._l_gid
+        l_type          = self._l_type
 
-        ret = True
-        for self._str_gid in self._l_gid:
-            for self._str_hemi in self._l_hemi:
-                for self._str_surface in self._l_surface:
-                    for self._str_curv in self._l_curv:
-                        for self._str_ctype in self._l_type:
+        for key, val in callBackArgs.iteritems():
+            if key == 'hemi':           l_hemi          = val
+            if key == 'surface':        l_surface       = val
+            if key == 'curv':           l_curv          = val
+            if key == 'group':          l_group         = val
+            if key == 'ctype':          l_type          = val
+
+        for self._str_gid in l_group:
+            for self._str_hemi in l_hemi:
+                for self._str_surface in l_surface:
+                    for self._str_curv in l_curv:
+                        for self._str_ctype in l_type:
                             ret = func_callBack(**callBackArgs)
         return ret
+
 
     def clouds_define(self, **kwargs):
         '''
@@ -440,69 +602,13 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         ctype   = self._str_ctype
 
         _str_fileName = '%s-Ap%s.%s.%s.%s.%s.txt' % (ctype, group, hemi, curv, self._str_dataDir, surface)
-        p = Polygon(self._d_boundary[group][hemi][surface][curv][ctype])
+        p = sgPolygon(self._d_boundary[group][hemi][surface][curv][ctype])
+        self._d_poly[group][hemi][surface][curv][ctype] = p
         f_A = p.area
-        print("%60s: %10.5f" % (_str_fileName, f_A))
-
-        
-    def clouds_gather(self):
-        '''
-        Populates the internal self._d_cloud dictionary across
-        the input space.
-        
-        PRECONDITIONS
-        o self._l_gid
-        
-        POSTCONDITIONS
-        o self._d_cloud
-        '''
-        self._c_cloud           = misc.dict_init(self._l_gid)
-        self._d_cloud           = misc.dict_init(self._l_gid)
-        self._d_boundary        = misc.dict_init(self._l_gid)
-        self._d_poly            = misc.dict_init(self._l_gid)
-        self._d_polyArea        = misc.dict_init(self._l_gid)
-        b_firstElementPerCluster    = False
-        for group in self._l_gid:
-            self._d_cloud[group] = misc.dict_init(self._l_hemi)
-            self._c_cloud[group] = misc.dict_init(self._l_hemi)
-            self._d_boundary[group] = misc.dict_init(self._l_hemi)
-            self._d_poly[group] = misc.dict_init(self._l_hemi)
-            self._d_polyArea[group] = misc.dict_init(self._l_hemi)
-            for hemi in self._l_hemi:
-                self._d_cloud[group][hemi] = misc.dict_init(self._l_surface)
-                self._c_cloud[group][hemi] = misc.dict_init(self._l_surface)
-                self._d_boundary[group][hemi] = misc.dict_init(self._l_surface)
-                self._d_poly[group][hemi] = misc.dict_init(self._l_surface)
-                self._d_polyArea[group][hemi] = misc.dict_init(self._l_surface)
-                for surface in self._l_surface:
-                    self._d_cloud[group][hemi][surface] = misc.dict_init(self._l_curv)
-                    self._c_cloud[group][hemi][surface] = misc.dict_init(self._l_curv)
-                    self._d_boundary[group][hemi][surface] = misc.dict_init(self._l_curv)
-                    self._d_poly[group][hemi][surface] = misc.dict_init(self._l_curv)
-                    self._d_polyArea[group][hemi][surface] = misc.dict_init(self._l_curv)
-                    for curv in self._l_curv:
-                        self._d_cloud[group][hemi][surface][curv] = misc.dict_init(self._l_type)
-                        self._c_cloud[group][hemi][surface][curv] = misc.dict_init(self._l_type)
-                        self._d_boundary[group][hemi][surface][curv] = misc.dict_init(self._l_type)
-                        self._d_poly[group][hemi][surface][curv] = misc.dict_init(self._l_type)
-                        self._d_polyArea[group][hemi][surface][curv] = misc.dict_init(self._l_type)
-                        for ctype in self._l_type:
-                            b_firstElementPerCluster = False
-                            for subj in self._l_subject:
-                                if subj[0] == group:
-                                    if not b_firstElementPerCluster:
-                                        self._d_cloud[group][hemi][surface][curv][ctype] = \
-                                        self._d_centroids[subj][hemi][surface][curv][ctype]
-                                        b_firstElementPerCluster = True
-                                    else:
-                                        self._d_cloud[group][hemi][surface][curv][ctype] = \
-                                        np.vstack((self._d_cloud[group][hemi][surface][curv][ctype],
-                                        self._d_centroids[subj][hemi][surface][curv][ctype]))
-                            self._c_cloud[group][hemi][surface][curv][ctype] = \
-                                C_centroidCloud(cloud=self._d_cloud[group][hemi][surface][curv][ctype])
-                            self._c_cloud[group][hemi][surface][curv][ctype].confidenceBoundary_find()
-                            self._d_boundary[group][hemi][surface][curv][ctype] = \
-                                self._c_cloud[group][hemi][surface][curv][ctype].boundary()
+        self._d_polyArea[group][hemi][surface][curv][ctype] = f_A
+        self.vprint("%60s: %10.5f" % (_str_fileName, f_A), 1)
+        misc.file_writeOnce(_str_fileName, '%s' % f_A)
+      
 
     def deviation_plot(self, al_points, str_fillColor = 'red', str_edgeColor = 'black'):
         poly    = pylab.Polygon(al_points,
@@ -514,7 +620,9 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         
     def clouds_plot(self):
         '''
-        Generate the actual centroid plot for given parameters
+        Generate (and save) the actual centroid plot for given parameters.
+        Displaying the plot is controlled through the internal self._b_showPlots
+        boolean.
         '''
         for hemi in self._l_hemi:
             for surface in self._l_surface:
@@ -529,6 +637,7 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                             _v0 = _M_cloud[:,0]
                             _v1 = _M_cloud[:,1]
                             if np.isnan(np.sum(_v0)): continue
+                            _str_fileName = '%s-%s-centroids-%s.%s.%s.%s' % (ctype, group, hemi, curv, self._str_dataDir, surface)
                             _str_fileName = '%s-%s.%s.%s.%s.txt' % (group, hemi, surface, curv, ctype)
                             np.savetxt(_str_fileName, _M_cloud, fmt='%10.7f')
                             print("Saving centroid cloud data to %s" % _str_fileName)
@@ -537,13 +646,15 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                                                    marker = self._l_marker[int(group)-1],
                                                        ls = 'None',
                                                    zorder = 1)
-                            self._d_poly[group][hemi][surface][curv][ctype] = \
-                                self.deviation_plot(self._d_boundary[group][hemi][surface][curv][ctype],
+                            self.deviation_plot(self._d_boundary[group][hemi][surface][curv][ctype],
                                                self._l_color[int(group)-1])
-                    pylab.title('%s-%s-%s-%s' % (args.dataDir, hemi, surface, curv))
+                    _str_title = '%s.%s.%s.%s' % (hemi, curv, args.dataDir, surface)                           
+                    pylab.title(_str_title)
                     pylab.xlabel('group mean cuvature')
                     pylab.ylabel('group expected occurrence')
-        pylab.show()
+                    pylab.savefig('centroids-deviationContour-%s.png' % _str_title, bbox_inches=0)
+                    pylab.savefig('centroids-deviationContour-%s.pdf' % _str_title, bbox_inches=0)
+        if self._b_showPlots: pylab.show()
 
                 
     def run(self):
@@ -790,11 +901,15 @@ if __name__ == "__main__":
         pipeline.internals_build()
 
         pipeline.innerLoop_ghsct(pipeline.clouds_define)
-        pipeline.innerLoop_ghsct(pipeline.boundary_areaAnalyze)
+        pipeline.innerLoop_hscgt(pipeline.boundary_areaAnalyze)
+
+        pipeline.groupIntersections_initialize()
+        pipeline.innerLoop_ghsct(pipeline.groupIntersections_determine,
+                                 group=pipeline.l_gidComb())
+        pipeline.innerLoop_ghsct(pipeline.groupTtest_determine,
+                                 group=pipeline.l_gidComb())
         
-        #pipeline.clouds_gather()
-        #pipeline.clouds_plot()
-        #pipeline.clouds_areaAnalyze()
+        pipeline.clouds_plot()
 
         os.chdir(pipeline.startDir())
         return True
