@@ -416,7 +416,7 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         for the passed str_curv.
         '''
         ret = True
-        l_noNeg = ['C', 'BE', 'S', 'FI']
+        l_noNeg = ['C', 'BE', 'S', 'FI', 'thickness']
         if str_curv in l_noNeg: ret = False
         return ret
         
