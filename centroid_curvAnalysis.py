@@ -638,9 +638,8 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                             _v1 = _M_cloud[:,1]
                             if np.isnan(np.sum(_v0)): continue
                             _str_fileName = '%s-%s-centroids-%s.%s.%s.%s' % (ctype, group, hemi, curv, self._str_dataDir, surface)
-                            _str_fileName = '%s-%s.%s.%s.%s.txt' % (group, hemi, surface, curv, ctype)
                             np.savetxt(_str_fileName, _M_cloud, fmt='%10.7f')
-                            print("Saving centroid cloud data to %s" % _str_fileName)
+                            self._log("Saving centroid cloud data to %s\n" % _str_fileName)
                             _d_plot[group], = plot(_v0, _v1,
                                                     color = self._l_color[int(group)-1],
                                                    marker = self._l_marker[int(group)-1],
