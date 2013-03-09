@@ -354,8 +354,8 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         f_ol    = 0
 
         f_overlap = p1.intersection(p2).area
-        f_or    = f_overlap / f_ar
-        f_ol    = f_overlap / f_al
+        f_or    = f_overlap / f_ar * 100
+        f_ol    = f_overlap / f_al * 100
         _str_fileName = '%s-%s-%s-centroids-analyze-%s.%s.%s.%s' % (ctype, g1, g2, hemi, curv, self._str_dataDir, surface)
         self.vprint("%60s: %10.5f %10.5f" % (_str_fileName, f_ol, f_or), 1)
         self._d_overlapLR[group][hemi][surface][curv][ctype]    = f_ol
@@ -649,7 +649,7 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                             if np.isnan(np.sum(_v0)): continue
                             _str_fileName = '%s-%s-centroids-%s.%s.%s.%s' % (ctype, group, hemi, curv, self._str_dataDir, surface)
                             np.savetxt(_str_fileName, _M_cloud, fmt='%10.7f')
-                            self._log("Saving centroid cloud data to %s\n" % _str_fileName)
+                            self._log("Saving centroid cloud data to %s\t\t\t\r" % _str_fileName)
                             _d_plot[group], = plot(_v0, _v1,
                                                     color = self._l_color[int(group)-1],
                                                    marker = self._l_marker[int(group)-1],
@@ -664,6 +664,7 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                     pylab.savefig('centroids-deviationContour-%s.png' % _str_title, bbox_inches=0)
                     pylab.savefig('centroids-deviationContour-%s.pdf' % _str_title, bbox_inches=0)
         if self._b_showPlots: pylab.show()
+        self._log('\n')
 
                 
     def run(self):
