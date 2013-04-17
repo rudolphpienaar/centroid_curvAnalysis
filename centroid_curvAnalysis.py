@@ -609,7 +609,7 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         curv    = self._str_curv
         ctype   = self._str_ctype
 
-        _str_fileName = '%s-Ap%s.%s.%s.%s.%s.txt' % (ctype, group, hemi, curv, self._str_dataDir, surface)
+        _str_fileName = '%s-Ap%s-%s.%s.%s.%s.txt' % (ctype, group, hemi, curv, self._str_dataDir, surface)
         p = sgPolygon(self._d_boundary[group][hemi][surface][curv][ctype])
         self._d_poly[group][hemi][surface][curv][ctype] = p
         f_A = p.area
@@ -649,7 +649,7 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                             if np.isnan(np.sum(_v0)): continue
                             _str_fileName = '%s-%s-centroids-%s.%s.%s.%s' % (ctype, group, hemi, curv, self._str_dataDir, surface)
                             np.savetxt(_str_fileName, _M_cloud, fmt='%10.7f')
-                            self._log("Saving centroid cloud data to %s\t\t\t\r" % _str_fileName)
+                            self._log("Saving centroid cloud data to %s                    \t\t\t\r" % _str_fileName)
                             _d_plot[group], = plot(_v0, _v1,
                                                     color = self._l_color[int(group)-1],
                                                    marker = self._l_marker[int(group)-1],
