@@ -151,7 +151,7 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         '''
         base.FNNDSC.__init__(self, **kwargs)
 
-        self._lw                        = 60
+        self._lw                        = 120
         self._rw                        = 20
         self._verbosity                 = 0
 
@@ -164,7 +164,7 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         self._surfaceList               = 'smoothwm,pial'
         self._curvList                  = 'H,K'
         self._str_dataDir               = '-x'
-        self._centroidTypeList          = 'pos,neg,natural'
+        self._centroidTypeList          = 'pos,neg,natural,sk'
         self._colorSpecList             = 'red,yellow,green,blue,cyan,magenta'
         self._markerSpecList            = '+,d,o,*,x,s,^'
 
@@ -201,6 +201,10 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         self._d_overlapLR               = {} # The left->right overlap norm
         self._d_overlapRL               = {} # The right->left overlap norm
         
+        # Operational contol
+        self._b_asymmetricalDeviations  = False
+        self._str_stdCenter             = 'original'
+        
         # Dictionaries containing all the cloud classes
         self._c_cloud                   = {}
         self._zOrderDeviation           = 3;
@@ -224,6 +228,9 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
             if key == 'subjectList':      self._l_subject         = value.split(',')
             if key == 'hemiList':         self._l_hemi            = value.split(',')
             if key == 'surfaceList':      self._l_surface         = value.split(',')
+            if key == 'asymmetricalDeviations':
+                                          self._b_asymmetricalDeviations = True
+                                          self._str_stdCenter            = value
             if key == 'curvList':
                 self._l_curv            = value.split(',')
                 self._curvList          = value
@@ -246,10 +253,15 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                     for curv in self._l_curv:
                         self._d_centroids[subj][hemi][surf][curv] = misc.dict_init(self._l_type)
 
-    def centroids_read(self):
+    def centroids_read(self, **kwargs):
         '''
         Reads all the relevant centroid files into internal dictionary.
         '''
+        _str_log        = ''
+        for key, value in kwargs.iteritems():
+            if key == 'log':    _str_log        = value
+        if len(_str_log): self._log(_str_log+'\n')
+
         for self._str_hemi in self._l_hemi:
             for self._str_surface in self._l_surface:
                 for self._str_curv in self._l_curv:
@@ -268,12 +280,16 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                         f_yp    = float(entry['yp'])
                         f_xc    = float(entry['xc'])
                         f_yc    = float(entry['yc'])
+                        f_skew  = float(entry['skewness'])
+                        f_kurt  = float(entry['kurtosis'])
                         v_n     = np.array( [f_xn, f_yn] )
                         v_p     = np.array( [f_xp, f_yp] )
                         v_c     = np.array( [f_xc, f_yc] )
+                        v_sk    = np.array( [f_skew, f_kurt] )
                         self._d_centroids[entry['Subj']][self._str_hemi][self._str_surface][self._str_curv]['neg'] = v_n
                         self._d_centroids[entry['Subj']][self._str_hemi][self._str_surface][self._str_curv]['pos'] = v_p
                         self._d_centroids[entry['Subj']][self._str_hemi][self._str_surface][self._str_curv]['natural'] = v_c
+                        self._d_centroids[entry['Subj']][self._str_hemi][self._str_surface][self._str_curv]['sk'] = v_sk
 
     def initialize(self):
         '''
@@ -369,6 +385,7 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         Determine the two-sided t-test on all pairwise combinations
         of centroid clouds
         '''
+                    
         group   = self._str_gid
         hemi    = self._str_hemi
         surface = self._str_surface
@@ -391,8 +408,7 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         if f_pval <= 0.05:      misc.file_writeOnce('%s-le5.txt' % _str_fileName, '%f' % f_pval)
         if f_pval <= 0.01:      misc.file_writeOnce('%s-le1.txt' % _str_fileName, '%f' % f_pval)
 
-
-    def groups_determine(self):
+    def groups_determine(self, **kwargs):
         '''
         Analyzes a given centroid table for all subjects and determines the
         number of groups.
@@ -405,9 +421,16 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         o self._l_gid
         
         '''
+        _str_log        = ''
+        for key, value in kwargs.iteritems():
+            if key == 'log':    _str_log        = value
+        if len(_str_log): self._log(_str_log, lw=self._lw)
+
         for subj in self._l_subject:
             self._l_gidTotal.append(subj[0])
         self._l_gid = sorted(set(self._l_gidTotal))
+
+        if len(_str_log): self._log('[ ok ]\n', rw=self._rw, syslog=False)
 
      
     def negCentroid_exists(self, str_curv):
@@ -440,10 +463,15 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         return _dict
 
 
-    def internals_build(self):
+    def internals_build(self, **kwargs):
         '''
         Construct the internal dictionaries that hold analysis data.
         '''
+        _str_log        = ''
+        for key, value in kwargs.iteritems():
+            if key == 'log':    _str_log        = value
+        if len(_str_log): self._log(_str_log, lw=self._lw)
+        
         self._c_cloud           = self.dict_ninit(self._l_gid,
                                                   self._l_hemi,
                                                   self._l_surface,
@@ -473,6 +501,8 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                                                   self._l_surface,
                                                   self._l_curv,
                                                   self._l_type)
+
+        if len(_str_log): self._log('[ ok ]\n', syslog=False, rw=self._rw)
 
 
 
@@ -504,13 +534,17 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         l_curv          = self._l_curv
         l_group         = self._l_gid
         l_type          = self._l_type
-        
+        _str_log        = ''
+       
         for key, val in callBackArgs.iteritems():
             if key == 'hemi':           l_hemi          = val
             if key == 'surface':        l_surface       = val
             if key == 'curv':           l_curv          = val
             if key == 'group':          l_group         = val
             if key == 'ctype':          l_type          = val
+            if key == 'log':            _str_log        = val
+
+        if len(_str_log): self._log(_str_log, lw=self._lw)
         
         for self._str_hemi in l_hemi:
             for self._str_surface in l_surface:
@@ -520,6 +554,8 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                             if self._str_ctype == 'neg' and not\
                             self.negCentroid_exists(self._str_curv): continue
                             ret = func_callBack(**callBackArgs)
+
+        if len(_str_log): self._log('[ ok ]\n', syslog=False, rw=self._rw)
         return ret
 
         
@@ -551,6 +587,7 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         l_curv          = self._l_curv
         l_group         = self._l_gid
         l_type          = self._l_type
+        _str_log        = ''
 
         for key, val in callBackArgs.iteritems():
             if key == 'hemi':           l_hemi          = val
@@ -558,6 +595,9 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
             if key == 'curv':           l_curv          = val
             if key == 'group':          l_group         = val
             if key == 'ctype':          l_type          = val
+            if key == 'log':            _str_log        = val
+
+        if len(_str_log): self._log(_str_log, lw=self._lw)
 
         for self._str_gid in l_group:
             for self._str_hemi in l_hemi:
@@ -567,6 +607,8 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                             if self._str_ctype == 'neg' and not\
                             self.negCentroid_exists(self._str_curv): continue
                             ret = func_callBack(**callBackArgs)
+
+        if len(_str_log): self._log('[ ok ]\n', syslog=False, rw=self._rw)
         return ret
 
 
@@ -592,6 +634,8 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                     self._d_centroids[subj][hemi][surface][curv][ctype]))
         self._c_cloud[group][hemi][surface][curv][ctype] = \
             C_centroidCloud(cloud=self._d_cloud[group][hemi][surface][curv][ctype])
+        self._c_cloud[group][hemi][surface][curv][ctype].asymmetricalDeviations(self._b_asymmetricalDeviations)
+        self._c_cloud[group][hemi][surface][curv][ctype].centerMean(self._str_stdCenter)
         self._c_cloud[group][hemi][surface][curv][ctype].confidenceBoundary_find()
         self._d_boundary[group][hemi][surface][curv][ctype] = \
             self._c_cloud[group][hemi][surface][curv][ctype].boundary()
@@ -602,7 +646,7 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         print "in callback!"
 
 
-    def boundary_areaAnalyze(self):
+    def boundary_areaAnalyze(self, **kwargs):
         group   = self._str_gid
         hemi    = self._str_hemi
         surface = self._str_surface
@@ -618,20 +662,42 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         misc.file_writeOnce(_str_fileName, '%s' % f_A)
       
 
-    def deviation_plot(self, al_points, str_fillColor = 'red', str_edgeColor = 'black'):
+    def deviation_plot(self, al_points, **kwargs):
+        _str_faceColor  = 'red'
+        _str_edgeColor  = 'black'
+        _zorder         = self._zOrderDeviation 
+        for key, value in kwargs.iteritems():
+            if key == 'facecolor':      _str_faceColor  = value 
+            if key == 'edgecolor':      _str_edgeColor  = value 
+            if key == 'zorder':         _zorder         = int(value)
         poly    = pylab.Polygon(al_points,
-                            facecolor = str_fillColor,
-                            edgecolor = str_edgeColor, zorder=self._zOrderDeviation)
+                            facecolor   = _str_faceColor,
+                            edgecolor   = _str_edgeColor, 
+                            zorder      = _zorder)
         pylab.gca().add_patch(poly)
         return poly
         
         
-    def clouds_plot(self):
+    def clouds_plot(self, **kwargs):
         '''
         Generate (and save) the actual centroid plot for given parameters.
         Displaying the plot is controlled through the internal self._b_showPlots
         boolean.
         '''
+        b_showSkewKurtosis      = False
+        _totalGroups            = len(self._l_gid)
+        for key, value in kwargs.iteritems():
+            if key == 'showSkewKurtosis':       b_showSkewKurtosis = bool(value)
+            if key == 'log':                    _str_log        = value
+
+        if len(_str_log): self._log(_str_log+'\n')
+        
+        _l_type  = list(self._l_type)
+        if not b_showSkewKurtosis: 
+            _l_type.remove('sk')
+        else:
+            _l_type = ['sk']
+       
         for hemi in self._l_hemi:
             for surface in self._l_surface:
                 for curv in self._l_curv:
@@ -639,7 +705,7 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                     pylab.grid()
                     _d_plot     = misc.dict_init(self._l_gid)
                     for group in self._l_gid:
-                        for ctype in self._l_type:
+                        for ctype in _l_type:
                             if ctype == 'natural': continue
                             if ctype == 'neg' and not self.negCentroid_exists(curv):
                                 continue
@@ -647,20 +713,26 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                             _v0 = _M_cloud[:,0]
                             _v1 = _M_cloud[:,1]
                             if np.isnan(np.sum(_v0)): continue
-                            _str_fileName = '%s-%s-centroids-%s.%s.%s.%s' % (ctype, group, hemi, curv, self._str_dataDir, surface)
+                            _str_fileName = '%s-%s-centroids-%s.%s.%s.%s.txt' % (ctype, group, hemi, curv, self._str_dataDir, surface)
                             np.savetxt(_str_fileName, _M_cloud, fmt='%10.7f')
                             self._log("Saving centroid cloud data to %s                    \t\t\t\r" % _str_fileName)
                             _d_plot[group], = plot(_v0, _v1,
                                                     color = self._l_color[int(group)-1],
                                                    marker = self._l_marker[int(group)-1],
                                                        ls = 'None',
-                                                   zorder = 1)
+                                                   zorder = 10)
                             self.deviation_plot(self._d_boundary[group][hemi][surface][curv][ctype],
-                                               self._l_color[int(group)-1])
-                    _str_title = '%s.%s.%s.%s' % (hemi, curv, args.dataDir, surface)                           
+                                                facecolor = self._l_color[int(group)-1],
+                                                   zorder = abs(int(group)-_totalGroups)+1)
+                    _str_title = '%s.%s.%s.%s' % (hemi, curv, args.dataDir, surface)
+                    if b_showSkewKurtosis: _str_title = 'sk-%s' % _str_title
                     pylab.title(_str_title)
-                    pylab.xlabel('group mean cuvature')
-                    pylab.ylabel('group expected occurrence')
+                    if ctype == 'sk':
+                        pylab.xlabel('skew')
+                        pylab.ylabel('kurtosis')
+                    else:
+                        pylab.xlabel('group mean cuvature')
+                        pylab.ylabel('group expected occurrence')
                     pylab.savefig('centroids-deviationContour-%s.png' % _str_title, bbox_inches=0)
                     pylab.savefig('centroids-deviationContour-%s.pdf' % _str_title, bbox_inches=0)
         if self._b_showPlots: pylab.show()
@@ -687,7 +759,8 @@ def synopsis(ab_shortOnly = False):
                             [--centroidType|-t <centroidType]   \\
                             [--hemi|-h <hemisphere>]            \\
                             [--surface|-f <surface>]            \\
-                            [--curv|-c <curvType>
+                            [--curv|-c <curvType>               \\
+                            [--asymmetricalDeviations <center]
     ''' % scriptName
   
     description =  '''
@@ -710,6 +783,13 @@ def synopsis(ab_shortOnly = False):
         The "type" of centroid to analyze. One (or more) of:
 
                 neg,pos,natural
+                
+        --asymmetricalDeviations <center>
+        If specified, calculate asymmetricalDeviations, i.e. separate 
+        explicit deviations "above" and "below" the mean along a 
+        dimension. The <center> defines the "center", i.e. mean, 
+        for the deviation calcuations. Usually this should be 'original'.
+        See the source code of C_centroid_cloud for <center> types. 
 
         --colorSpec <colorSpec>
         A comma-separated string defining the colors to use for each
@@ -730,7 +810,7 @@ def synopsis(ab_shortOnly = False):
         --curv <curvType> 
         The curvature map function stem name to analyze. The actual curvature
         file is contructed from <hemi>.<surface>.<curvType>.crv.
-
+        
         --stages|-s <stages>
         The stages to execute. This is specified in a string, such as '1234'
         which would imply stages 1, 2, 3, and 4.
@@ -863,6 +943,11 @@ if __name__ == "__main__":
                         action='store',
                         default='H',
                         help='curvature map to process')
+    parser.add_argument('--asymmetricalDeviations',
+                        dest='asymmetricalDeviations',
+                        action='store',
+                        default='',
+                        help='Use asymmetricalDeviations in calculating cloud boundary')
     args = parser.parse_args()
 
     OSshell = crun.crun()
@@ -878,6 +963,7 @@ if __name__ == "__main__":
                         hemiList                = args.hemi,
                         surfaceList             = args.surface,
                         curvList                = args.curv,
+                        asymmetricalDeviations  = args.asymmetricalDeviations,
                         logTo                   = 'CentroidCloud.log',
                         syslog                  = True,
                         logTee                  = True
@@ -905,21 +991,29 @@ if __name__ == "__main__":
         lst_surface     = pipeline.l_surface()
         lst_curv        = pipeline.l_curv()
 
-        pipeline.centroids_read()
-        pipeline.groups_determine()
+        pipeline.centroids_read(        log='Reading centroid files...')
+        pipeline.groups_determine(      log='Determining groups...')
 
-        pipeline.internals_build()
+        pipeline.internals_build(       log='Building internals...')
 
-        pipeline.innerLoop_ghsct(pipeline.clouds_define)
-        pipeline.innerLoop_hscgt(pipeline.boundary_areaAnalyze)
+        pipeline.innerLoop_ghsct(pipeline.clouds_define, 
+                                        log='Defining clouds...')
+        pipeline.innerLoop_hscgt(pipeline.boundary_areaAnalyze, 
+                                        log='Analyzing boundary areas...')
 
         pipeline.groupIntersections_initialize()
         pipeline.innerLoop_ghsct(pipeline.groupIntersections_determine,
-                                 group=pipeline.l_gidComb())
+                                        group=pipeline.l_gidComb(),
+                                        log='Determining group intersections...')
         pipeline.innerLoop_ghsct(pipeline.groupTtest_determine,
-                                 group=pipeline.l_gidComb())
+                                        group=pipeline.l_gidComb(),
+                                        log='Performing paired t-tests...')
         
-        pipeline.clouds_plot()
+        # First plot the "pure" centroid data
+        pipeline.clouds_plot(           log='Plotting centroid clouds...')
+        # Plot again to show the skew/kurtosis
+        pipeline.clouds_plot(showSkewKurtosis = True, 
+                                        log='Plotting skewness -vs- kurtosis clouds...')
 
         os.chdir(pipeline.startDir())
         return True
