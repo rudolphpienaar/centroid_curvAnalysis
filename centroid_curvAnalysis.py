@@ -643,7 +643,7 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
 
 
     def callback_test(self):
-        print "in callback!"
+        print("in callback!")
 
 
     def boundary_areaAnalyze(self, **kwargs):
@@ -683,16 +683,27 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         Generate (and save) the actual centroid plot for given parameters.
         Displaying the plot is controlled through the internal self._b_showPlots
         boolean.
+        
+        The kwargs 'groups' defines a subset of groups to plot. It is 
         '''
         b_showSkewKurtosis      = False
+        b_groupSubset           = False
         _totalGroups            = len(self._l_gid)
+        _l_type                 = list(self._l_type)
+        _l_group                = list(self._l_gid)
+        _str_symmetry           = 'Symmetric'
+        
+        if self._b_asymmetricalDeviations: _str_symmetry = 'Asymmetric'
+
         for key, value in kwargs.iteritems():
             if key == 'showSkewKurtosis':       b_showSkewKurtosis = bool(value)
             if key == 'log':                    _str_log        = value
+            if key == 'groups':
+                b_groupSubset   = True
+                _l_group        = value
 
         if len(_str_log): self._log(_str_log+'\n')
         
-        _l_type  = list(self._l_type)
         if not b_showSkewKurtosis: 
             _l_type.remove('sk')
         else:
@@ -704,7 +715,8 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                     pylab.figure()
                     pylab.grid()
                     _d_plot     = misc.dict_init(self._l_gid)
-                    for group in self._l_gid:
+                    #for group in self._l_gid:
+                    for group in _l_group:
                         for ctype in _l_type:
                             if ctype == 'natural': continue
                             if ctype == 'neg' and not self.negCentroid_exists(curv):
@@ -726,6 +738,7 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                                                    zorder = abs(int(group)-_totalGroups)+1)
                     _str_title = '%s.%s.%s.%s' % (hemi, curv, args.dataDir, surface)
                     if b_showSkewKurtosis: _str_title = 'sk-%s' % _str_title
+                    if b_groupSubset:      _str_title = '%s-%s' % (''.join(_l_group), _str_title)
                     pylab.title(_str_title)
                     if ctype == 'sk':
                         pylab.xlabel('skew')
@@ -733,8 +746,8 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                     else:
                         pylab.xlabel('group mean cuvature')
                         pylab.ylabel('group expected occurrence')
-                    pylab.savefig('centroids-deviationContour-%s.png' % _str_title, bbox_inches=0)
-                    pylab.savefig('centroids-deviationContour-%s.pdf' % _str_title, bbox_inches=0)
+                    pylab.savefig('centroids-deviationContour%s-%s.png' % (_str_symmetry, _str_title), bbox_inches=0)
+                    pylab.savefig('centroids-deviationContour%s-%s.pdf' % (_str_symmetry, _str_title), bbox_inches=0)
         if self._b_showPlots: pylab.show()
         self._log('\n')
 
@@ -946,7 +959,7 @@ if __name__ == "__main__":
     parser.add_argument('--asymmetricalDeviations',
                         dest='asymmetricalDeviations',
                         action='store',
-                        default='',
+                        default='original',
                         help='Use asymmetricalDeviations in calculating cloud boundary')
     args = parser.parse_args()
 
@@ -1014,6 +1027,14 @@ if __name__ == "__main__":
         # Plot again to show the skew/kurtosis
         pipeline.clouds_plot(showSkewKurtosis = True, 
                                         log='Plotting skewness -vs- kurtosis clouds...')
+        
+        # Now plot again, this time only the underlying pair-wise groups:
+        for groupPair in pipeline._l_gidComb:
+            pipeline.clouds_plot(       log='Plotting centroid clouds for pair %s' % groupPair,
+                                        groups=list(groupPair))
+            pipeline.clouds_plot(       log='Plotting skewness -vs- kurtosis for pair %s' % groupPair,
+                                        showSkewKurtosis = True,
+                                        groups=list(groupPair))
 
         os.chdir(pipeline.startDir())
         return True
