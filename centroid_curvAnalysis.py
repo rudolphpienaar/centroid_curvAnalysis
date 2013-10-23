@@ -79,9 +79,11 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         Based on the internal b_asymmetricalDeviations flag, return
         either 'Sym' or 'Asym'
         '''
-        _str_symmetry   = "Sym"
+        _str_symmetry           = "sym"
         if self._b_asymmetricalDeviations:
-            _str_symmetry       = "Asym"
+            _str_symmetry       = "asym"
+        if self._b_usePercentiles:
+            _str_symmetry       = "ptile"
         return _str_symmetry
 
     def l_hemisphere(self):
@@ -119,10 +121,6 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
 
     def subjDir(self):
         return "%s/%s" % (self._str_workingDir, self._str_subj)
-
-    def analysisDir(self):
-        return "%s/%s/%s/%s/%s" % \
-            (self.subjDir(), _str_HBWMdir, self._str_hemi, self._str_surface, self._str_curv)
 
     def startDir(self):
         return self._str_workingDir
@@ -206,9 +204,10 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         self._d_centroids               = {} # All the centroids per subject
         self._d_cloud                   = {} # Each group's cloud
         self._d_cloudPoints             = {} # Each group's cloud as point list
-        self._d_boundary                = {} # Each group's boundary
-        self._d_poly                    = {} # Each group's *polygon* boundary
-        self._d_polyArea                = {} # Each group's cloud area
+        self._d_boundary                = {} # Each group's boundary array pts
+        self._d_poly                    = {} # Each group's boundary as polygon
+        self._d_polyArea                = {} # Each group's boundary area
+        self._d_polyDensity             = {} # Each group's boundary "density"
         self._d_overlapLR               = {} # The left->right overlap norm
         self._d_overlapRL               = {} # The right->left overlap norm
         self._d_intersectPointsR        = {} # Points within the overlap, R 
@@ -246,6 +245,9 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
             if key == 'asymmetricalDeviations' and len(value):
                                           self._b_asymmetricalDeviations = True
                                           self._str_stdCenter            = value
+            if key == 'usePercentiles' and len(value):
+                                          self._b_usePercentiles         = True
+                                          self._f_percentile             = float(value)
             if key == 'curvList':
                 self._l_curv            = value.split(',')
                 self._curvList          = value
@@ -368,14 +370,16 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
 
     def groupIntersections_pointMembership_find(self, aplgn_space, apnt):
         '''
-        For a given polygon and a set of points in the same space, return.
-        the subset of points that are contained within the polygon.
+        For a given polygon and a set of shapely points in the same space, 
+        return the subset of points that are contained within the polygon 
+        as well as the "density".
         '''
         l_pointWithin   = []
-        for i in range(0, len(apnt)):
-            if apnt[i].within(aplgn_space):
-                l_pointWithin.append(apnt[i])
-        return l_pointWithin
+        for pt in apnt:
+            if aplgn_space.contains(pt):
+                l_pointWithin.append(pt)
+        f_d = len(l_pointWithin) / len(apnt)
+        return l_pointWithin, f_d
 
     def groupIntersections_determine(self, **kwargs):
         '''
@@ -392,6 +396,9 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         g2      = group[1]
         p1      = self._d_poly[g1][hemi][surface][curv][ctype]
         p2      = self._d_poly[g2][hemi][surface][curv][ctype]
+        
+        M_c1    = self._d_cloud[g1][hemi][surface][curv][ctype]
+        M_c2    = self._d_cloud[g2][hemi][surface][curv][ctype]
         pnts1   = self._d_cloudPoints[g1][hemi][surface][curv][ctype]
         pnts2   = self._d_cloudPoints[g2][hemi][surface][curv][ctype]
         f_ar    = p1.area
@@ -405,6 +412,12 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         f_overlap = p_overlap.area
         f_or    = f_overlap / f_ar * 100
         f_ol    = f_overlap / f_al * 100
+        if group == "23" and ctype == "neg" and hemi == "lh" and surface == "smoothwm" and curv == "K2":
+            ar_overlap = np.asarray(p_overlap.exterior)
+            np.savetxt('overlapTest.txt', ar_overlap)
+            np.savetxt('M_c1.txt', M_c1)
+            np.savetxt('M_c2.txt', M_c2)
+            print("Threshold crossed!")
         _str_fileName = '%s-%s-%s-centroids-analyze-%s.%s.%s.%s' % (ctype, g1, g2, hemi, curv, self._str_dataDir, surface)
         self.vprint("%60s: %10.5f %10.5f" % (_str_fileName, f_ol, f_or), 1)
         self._d_overlapLR[group][hemi][surface][curv][ctype]    = f_ol
@@ -413,15 +426,14 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         misc.file_writeOnce('%s.txt-overlapR%s' % (_str_fileName, self.symmetryID()), '%s' % f_or)
 
         # Density weighting...
-        l_pntr  = self.groupIntersections_pointMembership_find(p_overlap, pnts1)
-        l_pntl  = self.groupIntersections_pointMembership_find(p_overlap, pnts2)
-        
-        f_dr    = len(l_pntr) / len(pnts1)
-        f_dl    = len(l_pntl) / len(pnts2)
-        
-        # The overlap density is expressed as a weighted normalization of the
+        l_pntr, f_dr  = self.groupIntersections_pointMembership_find(p_overlap, pnts1)
+        l_pntl, f_dl  = self.groupIntersections_pointMembership_find(p_overlap, pnts2)
+                
+        # The overlap density is expressed as a weighted normalized percentage of the
         # largest area overlap normalization.
-        f_od    = (f_or if f_or > f_ol else f_ol) * f_dr * f_dl
+        f_od    = (f_or if f_or > f_ol else f_ol) * f_dr * f_dl * 100
+        self.vprint("%60s: %10.5f %10.5f" % (_str_fileName, f_ol, f_or), 1)
+        self.vprint("%60s: %10.5f %10.5f" % (_str_fileName, f_dr, f_dl), 1)
         misc.file_writeOnce('%s.txt-overlapDensity%s' % (_str_fileName, self.symmetryID()), '%s' % f_od)
          
 
@@ -552,6 +564,13 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                                                   self._l_surface,
                                                   self._l_curv,
                                                   self._l_type)
+        
+        self._d_polyDensity     = self.dict_ninit(self._l_gid,
+                                                  self._l_hemi,
+                                                  self._l_surface,
+                                                  self._l_curv,
+                                                  self._l_type)
+        
 
         if len(_str_log): self._log('[ ok ]\n', syslog=False, rw=self._rw)
 
@@ -568,7 +587,7 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
             hemi, surface, curv, group, type
 
         Note that internal tracking object variables, _str_gid ... _str_ctype
-        are automatically updated by this script.
+        are automatically updated by this method.
 
         The **callBackArgs is a generic dictionary holder that is interpreted
         by both this loop controller and also passed down to the callback
@@ -621,7 +640,7 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
             gid, hemi, surface, curv, type
 
         Note that internal tracking object variables, _str_gid ... _str_ctype
-        are automatically updated by this script.
+        are automatically updated by this method.
 
         The **callBackArgs is a generic dictionary holder that is interpreted
         by both this loop controller and also passed down to the callback
@@ -704,7 +723,10 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         self._c_cloud[group][hemi][surface][curv][ctype].centerMean(self._str_stdCenter)
         self._c_cloud[group][hemi][surface][curv][ctype].usePercentiles(self._b_usePercentiles)
         self._c_cloud[group][hemi][surface][curv][ctype].percentile(self._f_percentile)
+        # Determine the "boundary" points of the confidence kernel
         self._c_cloud[group][hemi][surface][curv][ctype].confidenceBoundary_find()
+        # and store these points explictly in *this* object  -- these are
+        # np.array points.
         self._d_boundary[group][hemi][surface][curv][ctype] = \
             self._c_cloud[group][hemi][surface][curv][ctype].boundary()
         return True
@@ -721,13 +743,26 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         curv    = self._str_curv
         ctype   = self._str_ctype
 
-        _str_fileName = '%s-A%s%s-%s.%s.%s.%s.txt' % (ctype, self.symmetryID(), group, hemi, curv, self._str_dataDir, surface)
-        p = sgPolygon(self._d_boundary[group][hemi][surface][curv][ctype])
+        _str_fileNameArea = '%s-A%s%s-%s.%s.%s.%s.txt' % \
+            (ctype, self.symmetryID(), 
+             group, hemi, curv, 
+             self._str_dataDir, surface)
+        _str_fileNameDty = '%s-Dty-%s%s-%s.%s.%s.%s.txt' % \
+            (ctype, self.symmetryID(), 
+             group, hemi, curv, 
+             self._str_dataDir, surface)
+        ar_points = self._d_boundary[group][hemi][surface][curv][ctype]
+        p = sgPolygon(ar_points)
+        pnt_cloud = self._d_cloudPoints[group][hemi][surface][curv][ctype]
         self._d_poly[group][hemi][surface][curv][ctype] = p
         f_A = p.area
+        l_pointsInBoundary, f_density = \
+            self.groupIntersections_pointMembership_find(p, pnt_cloud)
         self._d_polyArea[group][hemi][surface][curv][ctype] = f_A
-        self.vprint("%60s: %10.5f" % (_str_fileName, f_A), 1)
-        misc.file_writeOnce(_str_fileName, '%s' % f_A)
+        self.vprint("%60s: %10.5f" % (_str_fileNameArea, f_A), 1)
+        misc.file_writeOnce(_str_fileNameArea, '%s' % f_A)
+        misc.file_writeOnce(_str_fileNameDty, '%s' % f_density)
+        return True
       
 
     def deviation_plot(self, al_points, **kwargs):
@@ -841,7 +876,7 @@ def synopsis(ab_shortOnly = False):
                             [--surface|-f <surface>]            \\
                             [--curv|-c <curvType>               \\
                             [--asymmetricalDeviations <center]  \\
-                            [--usePercentiles <percentile>
+                            [--usePercentiles <percentile>]
     ''' % scriptName
   
     description =  '''
@@ -871,6 +906,12 @@ def synopsis(ab_shortOnly = False):
         dimension. The <center> defines the "center", i.e. mean, 
         for the deviation calcuations. Usually this should be 'original'.
         See the source code of C_centroid_cloud for <center> types. 
+        
+        --usePercentiles <percentile>
+        If specified, define kernel boundary regions using descriptive
+        statistics, i.e. percentiles. The <percentiles> indicates the
+        percentile ranges above and below the mean to consider in the 
+        kernel boundary. Usually, 25 is a good choice.
 
         --colorSpec <colorSpec>
         A comma-separated string defining the colors to use for each
@@ -1029,6 +1070,11 @@ if __name__ == "__main__":
                         action='store',
                         default='',
                         help='Use asymmetricalDeviations in calculating cloud boundary')
+    parser.add_argument('--usePercentiles',
+                        dest='usePercentiles',
+                        action='store',
+                        default='',
+                        help='Use percentile offset from mean in calculating cloud boundary')
     args = parser.parse_args()
 
     OSshell = crun.crun()
@@ -1045,6 +1091,7 @@ if __name__ == "__main__":
                         surfaceList             = args.surface,
                         curvList                = args.curv,
                         asymmetricalDeviations  = args.asymmetricalDeviations,
+                        usePercentiles          = args.usePercentiles,
                         logTo                   = 'CentroidCloud.log',
                         syslog                  = True,
                         logTee                  = True
