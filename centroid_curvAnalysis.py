@@ -409,7 +409,9 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         f_od    = 0         # Overlap area density
 
         # Area overlap...
-        _str_focus = '%s-%s-%s-%s-%s' % (group, hemi, surface, curv, ctype)
+        _str_focus  = '%s-%s-%s-%s-%s' % (group, hemi, surface, curv, ctype)
+        _str_focus1 = '%s-%s-%s-%s-%s' % (g1, hemi, surface, curv, ctype) 
+        _str_focus2 = '%s-%s-%s-%s-%s' % (g2, hemi, surface, curv, ctype) 
         print(_str_focus)
         if group == "12" and ctype == "neg" and hemi == "lh" and surface == "pial" and curv == "K":
 #             ar_overlap = np.asarray(p_overlap.exterior)
@@ -425,6 +427,18 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         # convex hulls of the statistical shapes.
 
         self.vprint('Processing: %s' % _str_focus, 1)
+        for geom in [p1, p2]:
+            if not geom.is_valid:
+                self.vprint('Invalid geometry found for %s' % \
+                             _str_focus1 if geom==p1 else _str_focus2)
+                self.vprint('Applying buffer(0) fix...')
+                geomClean = geom.buffer(0.0)
+                assert geomClean.geom_type == 'Polyon'
+                assert geomClean.is_valid
+                geom = geomClean
+                self.vprint('Geometry fixed!')
+                sys.exit(10)
+            
         p1hull  = p1.convex_hull
         p2hull  = p2.convex_hull
         p_overlap = p1hull.intersection(p2hull)
