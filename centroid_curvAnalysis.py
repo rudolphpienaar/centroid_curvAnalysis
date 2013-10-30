@@ -213,11 +213,12 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         self._d_intersectPointsR        = {} # Points within the overlap, R 
         self._d_intersectPointsL        = {} # Points within the overlap, L 
         
-        # Operational contol
+        # Operational control
         self._b_asymmetricalDeviations  = False
         self._str_stdCenter             = 'original'
         self._b_usePercentiles          = False
         self._f_percentile              = 25
+        self._b_convexHull_use          = False
         
         # Dictionaries containing all the cloud classes
         self._c_cloud                   = {}
@@ -430,19 +431,19 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         for geom in [p1, p2]:
             if not geom.is_valid:
                 self.vprint('Invalid geometry found for %s' % \
-                             _str_focus1 if geom==p1 else _str_focus2)
+                             _str_focus1 if geom==p1 else _str_focus2, 0)
                 self.vprint('Applying buffer(0) fix...')
                 geomClean = geom.buffer(0.0)
                 assert geomClean.geom_type == 'Polyon'
                 assert geomClean.is_valid
                 geom = geomClean
-                self.vprint('Geometry fixed!')
+                self.vprint('Geometry fixed!', 0)
                 sys.exit(10)
-            
-        p1hull  = p1.convex_hull
-        p2hull  = p2.convex_hull
-        p_overlap = p1hull.intersection(p2hull)
-        p_overlap = p1.intersection(p2)
+        
+        if self._b_convexHull_use:
+            p_overlap = p1.convex_hull.intersection(p2.convex_hull)
+        else:
+            p_overlap = p1.intersection(p2)        
         
         f_overlap = p_overlap.area
         f_or    = f_overlap / f_ar * 100
