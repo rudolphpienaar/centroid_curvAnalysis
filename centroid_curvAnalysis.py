@@ -368,7 +368,8 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         self._d_intersectPointsR= self._d_overlapLR.copy()
 
 
-    def groupIntersections_pointMembership_find(self, aplgn_space, apnt):
+    @staticmethod
+    def groupIntersections_pointMembership_find(aplgn_space, apnt):
         '''
         For a given polygon and a set of shapely points in the same space, 
         return the subset of points that are contained within the polygon 
@@ -378,7 +379,7 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         for pt in apnt:
             if aplgn_space.contains(pt):
                 l_pointWithin.append(pt)
-        f_d = len(l_pointWithin) / len(apnt)
+        f_d = float(len(l_pointWithin)) / float(len(apnt))
         return l_pointWithin, f_d
 
     def groupIntersections_determine(self, **kwargs):
@@ -408,16 +409,30 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         f_od    = 0         # Overlap area density
 
         # Area overlap...
+        _str_focus = '%s-%s-%s-%s-%s' % (group, hemi, surface, curv, ctype)
+        print(_str_focus)
+        if group == "12" and ctype == "neg" and hemi == "lh" and surface == "pial" and curv == "K":
+#             ar_overlap = np.asarray(p_overlap.exterior)
+#             np.savetxt('overlapTest.txt', ar_overlap)
+            np.savetxt('/tmp/M_c1.txt', M_c1)
+            np.savetxt('/tmp/M_c2.txt', M_c2)
+#             print("Threshold crossed!")
+
+        
+        # In some cases, the generation of the deviation boundary can form an
+        # invalid geometry, esp for the descriptive statistics. To account for this
+        # we track the is_valid property and form the intersections only of the
+        # convex hulls of the statistical shapes.
+
+        self.vprint('Processing: %s' % _str_focus, 1)
+        p1hull  = p1.convex_hull
+        p2hull  = p2.convex_hull
+        p_overlap = p1hull.intersection(p2hull)
         p_overlap = p1.intersection(p2)
+        
         f_overlap = p_overlap.area
         f_or    = f_overlap / f_ar * 100
         f_ol    = f_overlap / f_al * 100
-        if group == "23" and ctype == "neg" and hemi == "lh" and surface == "smoothwm" and curv == "K2":
-            ar_overlap = np.asarray(p_overlap.exterior)
-            np.savetxt('overlapTest.txt', ar_overlap)
-            np.savetxt('M_c1.txt', M_c1)
-            np.savetxt('M_c2.txt', M_c2)
-            print("Threshold crossed!")
         _str_fileName = '%s-%s-%s-centroids-analyze-%s.%s.%s.%s' % (ctype, g1, g2, hemi, curv, self._str_dataDir, surface)
         self.vprint("%60s: %10.5f %10.5f" % (_str_fileName, f_ol, f_or), 1)
         self._d_overlapLR[group][hemi][surface][curv][ctype]    = f_ol
@@ -426,12 +441,12 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         misc.file_writeOnce('%s.txt-overlapR%s' % (_str_fileName, self.symmetryID()), '%s' % f_or)
 
         # Density weighting...
-        l_pntr, f_dr  = self.groupIntersections_pointMembership_find(p_overlap, pnts1)
-        l_pntl, f_dl  = self.groupIntersections_pointMembership_find(p_overlap, pnts2)
+        l_pntr, f_dr  = FNNDSC_CentroidCloud.groupIntersections_pointMembership_find(p_overlap, pnts1)
+        l_pntl, f_dl  = FNNDSC_CentroidCloud.groupIntersections_pointMembership_find(p_overlap, pnts2)
                 
         # The overlap density is expressed as a weighted normalized percentage of the
         # largest area overlap normalization.
-        f_od    = (f_or if f_or > f_ol else f_ol) * f_dr * f_dl * 100
+        f_od    = (f_or if f_or > f_ol else f_ol) * f_dr * f_dl
         self.vprint("%60s: %10.5f %10.5f" % (_str_fileName, f_ol, f_or), 1)
         self.vprint("%60s: %10.5f %10.5f" % (_str_fileName, f_dr, f_dl), 1)
         misc.file_writeOnce('%s.txt-overlapDensity%s' % (_str_fileName, self.symmetryID()), '%s' % f_od)
@@ -681,7 +696,8 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         if len(_str_log): self._log('[ ok ]\n', syslog=False, rw=self._rw)
         return ret
 
-    def matrix2pointArray(self, aM):
+    @staticmethod
+    def matrix2pointArray(aM):
         '''
         Returns an array of sgPoints -- each row of aM is a new point.
         '''
@@ -715,7 +731,7 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
                     self._d_centroids[subj][hemi][surface][curv][ctype]))
 
         self._d_cloudPoints[group][hemi][surface][curv][ctype] = \
-            self.matrix2pointArray(self._d_cloud[group][hemi][surface][curv][ctype])
+            FNNDSC_CentroidCloud.matrix2pointArray(self._d_cloud[group][hemi][surface][curv][ctype])
                     
         self._c_cloud[group][hemi][surface][curv][ctype] = \
             C_centroidCloud(cloud=self._d_cloud[group][hemi][surface][curv][ctype])
@@ -757,7 +773,7 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         self._d_poly[group][hemi][surface][curv][ctype] = p
         f_A = p.area
         l_pointsInBoundary, f_density = \
-            self.groupIntersections_pointMembership_find(p, pnt_cloud)
+            FNNDSC_CentroidCloud.groupIntersections_pointMembership_find(p, pnt_cloud)
         self._d_polyArea[group][hemi][surface][curv][ctype] = f_A
         self.vprint("%60s: %10.5f" % (_str_fileNameArea, f_A), 1)
         misc.file_writeOnce(_str_fileNameArea, '%s' % f_A)
