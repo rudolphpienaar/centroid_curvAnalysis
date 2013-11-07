@@ -74,6 +74,49 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
     }
 
 
+    def filestem(self, **kwargs):
+        '''
+        Determines a filestem for output text and figure files. This stem
+        also contains a directory prefix -- this method will create this
+        directory if necessary.
+        
+        Any particular component can be overwritten using **kwargs.
+        
+        Example returns:
+        
+            "sym-convexhull/2/pos-2-lh-K-entire-pial"
+            
+        '''
+        _str_group   = self._str_gid
+        _str_hemi    = self._str_hemi
+        _str_surface = self._str_surface
+        _str_curv    = self._str_curv
+        _str_ctype   = self._str_ctype
+        
+
+        for key, value in kwargs.iteritems():
+            if key == 'group':      _str_group   = value
+            if key == 'hemi':       _str_hemi    = value
+            if key == 'surface':    _str_surface = value
+            if key == 'curv':       _str_curv    = value
+            if key == 'ctype':      _str_ctype   = value
+
+        _str_dir     = '%s-%s/%s/%s' % (self.symmetryID(), self.convexityID(), 
+                                        _str_group, _str_ctype)
+        misc.mkdir(_str_dir)
+
+
+        _str_filestem = '%s/%s-%s-%s-%s-%s-%s' % \
+            (_str_dir,
+             _str_ctype, 
+             _str_group, 
+             _str_hemi, 
+             _str_curv, 
+             self._str_dataDir, 
+             _str_surface)
+
+        return _str_filestem
+
     def symmetryID(self):
         '''
         Based on the internal b_asymmetricalDeviations flag, return
@@ -85,6 +128,16 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         if self._b_usePercentiles:
             _str_symmetry       = "ptile"
         return _str_symmetry
+
+    def convexityID(self):
+        '''
+        Based on the internal b_convexHull_use flag, return
+        either 'convex' or 'raw'
+        '''
+        _str_convexity          = "raw"
+        if self._b_convexHull_use:
+            _str_convexity      = "convex"
+        return _str_convexity
 
     def l_hemisphere(self):
         return self._l_hemi
@@ -125,6 +178,15 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
     def startDir(self):
         return self._str_workingDir
 
+    def convexHull_use(self, *args):
+        """
+        Get/set the boundary points.
+        """
+        if len(args):
+            self._b_convexHull_use = args[0]
+        else:
+            return self._b_convexHull_use
+    
     def verbosity(self, *args):
         """
         Get/set the boundary points.
@@ -233,26 +295,35 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         self._csv                       = None
 
         for key, value in kwargs.iteritems():
-            if key == 'stages':           self._stageslist        = value
+            if key == 'stages':           
+                self._stageslist        = value
             if key == 'dataDir':
                 os.chdir(value)
                 self._str_dataDir       = os.path.basename(value)
-            if key == 'colorSpecList':    self._l_color           = value.split(',')
-            if key == 'markerSpecList':   self._l_marker          = value.split(',')
-            if key == 'centroidTypeList': self._l_type            = value.split(',')
-            if key == 'subjectList':      self._l_subject         = value.split(',')
-            if key == 'hemiList':         self._l_hemi            = value.split(',')
-            if key == 'surfaceList':      self._l_surface         = value.split(',')
-            if key == 'asymmetricalDeviations' and len(value):
-                                          self._b_asymmetricalDeviations = True
-                                          self._str_stdCenter            = value
+            if key == 'colorSpecList':    
+                self._l_color           = value.split(',')
+            if key == 'markerSpecList':   
+                self._l_marker          = value.split(',')
+            if key == 'centroidTypeList': 
+                self._l_type            = value.split(',')
+            if key == 'subjectList':      
+                self._l_subject         = value.split(',')
+            if key == 'hemiList':         
+                self._l_hemi            = value.split(',')
+            if key == 'surfaceList':      
+                self._l_surface         = value.split(',')
+            if key == 'asymmetricalDeviations' and len(value): 
+                self._b_asymmetricalDeviations = True
+                self._str_stdCenter            = value
             if key == 'usePercentiles' and len(value):
-                                          self._b_usePercentiles         = True
-                                          self._f_percentile             = float(value)
+                self._b_usePercentiles         = True
+                self._f_percentile             = float(value)
+            if key == 'convexHulluse':
+                self._b_convexHull_use         = value
             if key == 'curvList':
                 self._l_curv            = value.split(',')
                 self._curvList          = value
-
+                
         # Read initial centroids file to determine number of subjects
         self._str_centroidFile = 'cumulative-centroids-%s.%s.%s.smoothwm.txt' % \
                 (self._l_hemi[0], self._l_curv[0], self._str_dataDir)
@@ -385,8 +456,21 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
 
     def groupIntersections_determine(self, **kwargs):
         '''
-        Determines the LR and RL overlap percentages between pairs
-        of intersecting polygon groups.
+        This method is one of the "core" discriminatory functions
+        that determines if two statistical groups are "different" 
+        in a geometric projection sense.
+        
+        It calculates both the area and particulate densities of
+        overlap regions, and stores the results in two text files,
+        one for area density and one for particulate density.
+        
+        These files contain:
+        
+            f_d1    f_d2    f_d1 * f_d2
+            
+        expressed as percentages, where f_d1 is the overlap density
+        normalized to group1, f_d2 is the overlap density normalized
+        to group2.
         '''
         group   = self._str_gid
         hemi    = self._str_hemi
@@ -410,15 +494,15 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         f_od    = 0         # Overlap area density
 
         # Area overlap...
-        _str_focus  = '%s-%s-%s-%s-%s' % (group, hemi, surface, curv, ctype)
-        _str_focus1 = '%s-%s-%s-%s-%s' % (g1, hemi, surface, curv, ctype) 
-        _str_focus2 = '%s-%s-%s-%s-%s' % (g2, hemi, surface, curv, ctype) 
-        print(_str_focus)
-        if group == "12" and ctype == "neg" and hemi == "lh" and surface == "pial" and curv == "K":
+        _str_focus  = self.filestem()
+        _str_focus1 = self.filestem(group='1')
+        _str_focus2 = self.filestem(group='2')
+#         print(_str_focus)
+#         if group == "12" and ctype == "neg" and hemi == "lh" and surface == "pial" and curv == "H":
 #             ar_overlap = np.asarray(p_overlap.exterior)
 #             np.savetxt('overlapTest.txt', ar_overlap)
-            np.savetxt('/tmp/M_c1.txt', M_c1)
-            np.savetxt('/tmp/M_c2.txt', M_c2)
+#             np.savetxt('/tmp/M_c1.txt', M_c1)
+#             np.savetxt('/tmp/M_c2.txt', M_c2)
 #             print("Threshold crossed!")
 
         
@@ -430,41 +514,45 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         self.vprint('Processing: %s' % _str_focus, 1)
         for geom in [p1, p2]:
             if not geom.is_valid:
-                self.vprint('Invalid geometry found for %s' % \
-                             _str_focus1 if geom==p1 else _str_focus2, 0)
-                self.vprint('Applying buffer(0) fix...')
+                log = self.log()
+                log('\nWarning! Self intersection in statistical geometry!\n', syslog=False)
+                log('\nInvalid geometry found\n')
+                _str_invalid = _str_focus1 if geom==p1 else _str_focus2 
+                log('%s\n' % _str_invalid)
+                log('Applying buffer(0) fix...\n')
                 geomClean = geom.buffer(0.0)
-                assert geomClean.geom_type == 'Polyon'
+                log('Buffered geometry is now type "%s"\n' % geomClean.geom_type)
                 assert geomClean.is_valid
-                geom = geomClean
-                self.vprint('Geometry fixed!', 0)
-                sys.exit(10)
-        
-        if self._b_convexHull_use:
-            p_overlap = p1.convex_hull.intersection(p2.convex_hull)
-        else:
-            p_overlap = p1.intersection(p2)        
-        
+                if geom==p1: p1 = geomClean
+                else: p2 = geomClean
+                log('Geometry fixed!\n')
+                log('Continuing with group intersections...')
+
+        p_overlap   = p1.intersection(p2)        
+
+        # Area density...        
         f_overlap = p_overlap.area
         f_or    = f_overlap / f_ar * 100
         f_ol    = f_overlap / f_al * 100
-        _str_fileName = '%s-%s-%s-centroids-analyze-%s.%s.%s.%s' % (ctype, g1, g2, hemi, curv, self._str_dataDir, surface)
+        _str_fileName = '%s-centroids' % (self.filestem())
         self.vprint("%60s: %10.5f %10.5f" % (_str_fileName, f_ol, f_or), 1)
         self._d_overlapLR[group][hemi][surface][curv][ctype]    = f_ol
         self._d_overlapRL[group][hemi][surface][curv][ctype]    = f_or
-        misc.file_writeOnce('%s.txt-overlapL%s' % (_str_fileName, self.symmetryID()), '%s' % f_ol)
-        misc.file_writeOnce('%s.txt-overlapR%s' % (_str_fileName, self.symmetryID()), '%s' % f_or)
+        misc.file_writeOnce('%s-cloudCoreOverlapAreaDensity.txt' % \
+                                (_str_fileName), 
+                            '%10.3f%10.3f%10.3f\n' % \
+                                (f_or, f_ol, f_or * f_ol * 100))
 
-        # Density weighting...
+        # Particulate density...
         l_pntr, f_dr  = FNNDSC_CentroidCloud.groupIntersections_pointMembership_find(p_overlap, pnts1)
         l_pntl, f_dl  = FNNDSC_CentroidCloud.groupIntersections_pointMembership_find(p_overlap, pnts2)
                 
-        # The overlap density is expressed as a weighted normalized percentage of the
-        # largest area overlap normalization.
-        f_od    = (f_or if f_or > f_ol else f_ol) * f_dr * f_dl
         self.vprint("%60s: %10.5f %10.5f" % (_str_fileName, f_ol, f_or), 1)
         self.vprint("%60s: %10.5f %10.5f" % (_str_fileName, f_dr, f_dl), 1)
-        misc.file_writeOnce('%s.txt-overlapDensity%s' % (_str_fileName, self.symmetryID()), '%s' % f_od)
+        misc.file_writeOnce('%s-cloudCoreOverlapParticleDensity.txt' % \
+                                (_str_fileName), 
+                            '%10.3f%10.3f%10.3f\n' % \
+                                (f_dr, f_dl, f_dr * f_dl * 100))
          
 
     def groupTtest_determine(self, **kwargs):
@@ -486,7 +574,8 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
 
         v_tstat, v_pval = stats.ttest_ind(v1, v2)
         f_pval  = np.linalg.norm(v_pval)
-        _str_fileName = '%s-%s-%s-pval-%s.%s.%s.%s' % (ctype, g1, g2, hemi, curv, self._str_dataDir, surface)
+        _str_fileName = '%s-centroids-cloudCoreOverlapPval' % self.filestem()
+#         _str_fileName = '%s-%s-%s-pval-%s.%s.%s.%s' % (ctype, g1, g2, hemi, curv, self._str_dataDir, surface)
         vstr_tstat = ' '.join('%10.6f'%F for F in v_tstat)
         vstr_pval  = ' '.join('%10.6f'%F for F in v_pval)
         self.vprint("%s, pvalue: (%s), pvalueN: %f" %\
@@ -723,6 +812,17 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
             l_point.append(p) 
         return l_point
 
+    @staticmethod
+    def convexHull_boundaryFind(ar_boundary):
+        '''
+        For a given np array <ar_boundary>, deterime the convex hull 
+        (implicitly assuming 2D spaces).
+        
+        Basically, this builds a polygon, finds the convex hull, and
+        translates back to an np.array.
+        '''
+        return np.asarray( sgPolygon(ar_boundary).convex_hull.exterior )
+        
     
     def clouds_define(self, **kwargs):
         '''
@@ -758,8 +858,10 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         self._c_cloud[group][hemi][surface][curv][ctype].confidenceBoundary_find()
         # and store these points explictly in *this* object  -- these are
         # np.array points.
-        self._d_boundary[group][hemi][surface][curv][ctype] = \
-            self._c_cloud[group][hemi][surface][curv][ctype].boundary()
+        ar_boundary = self._c_cloud[group][hemi][surface][curv][ctype].boundary()
+        if self._b_convexHull_use: ar_boundary = \
+            FNNDSC_CentroidCloud.convexHull_boundaryFind(ar_boundary)
+        self._d_boundary[group][hemi][surface][curv][ctype] = ar_boundary
         return True
 
 
@@ -774,14 +876,8 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         curv    = self._str_curv
         ctype   = self._str_ctype
 
-        _str_fileNameArea = '%s-A%s%s-%s.%s.%s.%s.txt' % \
-            (ctype, self.symmetryID(), 
-             group, hemi, curv, 
-             self._str_dataDir, surface)
-        _str_fileNameDty = '%s-Dty-%s%s-%s.%s.%s.%s.txt' % \
-            (ctype, self.symmetryID(), 
-             group, hemi, curv, 
-             self._str_dataDir, surface)
+        _str_fileNameArea   = '%s-centroids-cloudCoreArea.txt' % self.filestem()
+        _str_fileNameDty    = '%s-centroids-cloudCoreDensity.txt' % self.filestem()
         ar_points = self._d_boundary[group][hemi][surface][curv][ctype]
         p = sgPolygon(ar_points)
         pnt_cloud = self._d_cloudPoints[group][hemi][surface][curv][ctype]
@@ -840,47 +936,64 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         else:
             _l_type = ['sk']
        
-        for hemi in self._l_hemi:
-            for surface in self._l_surface:
-                for curv in self._l_curv:
+        for self._str_hemi in self._l_hemi:
+            for self._str_surface in self._l_surface:
+                for self._str_curv in self._l_curv:
                     pylab.figure()
                     pylab.grid()
                     _d_plot     = misc.dict_init(self._l_gid)
                     #for group in self._l_gid:
-                    for group in _l_group:
-                        for ctype in _l_type:
-                            if ctype == 'natural': continue
-                            if ctype == 'neg' and not self.negCentroid_exists(curv):
+                    for self._str_gid in _l_group:
+                        for self._str_ctype in _l_type:
+                            if self._str_ctype == 'natural': continue
+                            if self._str_ctype == 'neg' and \
+                                not self.negCentroid_exists(self._str_curv):
                                 continue
-                            _M_cloud = self._c_cloud[group][hemi][surface][curv][ctype].cloud()
+                            _M_cloud = self._c_cloud\
+                                        [self._str_gid]\
+                                        [self._str_hemi]\
+                                        [self._str_surface]\
+                                        [self._str_curv]\
+                                        [self._str_ctype].cloud()
                             _v0 = _M_cloud[:,0]
                             _v1 = _M_cloud[:,1]
                             if np.isnan(np.sum(_v0)): continue
-                            _str_fileName = '%s-%s-centroids-%s.%s.%s.%s.txt' % (ctype, group, hemi, curv, self._str_dataDir, surface)
+                            _str_fileName = '%s-centroids-cloud.txt' % self.filestem()
                             np.savetxt(_str_fileName, _M_cloud, fmt='%10.7f')
                             #self._log("Saving centroid cloud data to %s                    \t\t\t\r" % _str_fileName)
-                            _d_plot[group], = plot(_v0, _v1,
-                                                    color = self._l_color[int(group)-1],
-                                                   marker = self._l_marker[int(group)-1],
-                                                       ls = 'None',
-                                                   zorder = 10)
-                            self.deviation_plot(self._d_boundary[group][hemi][surface][curv][ctype],
-                                                facecolor = self._l_color[int(group)-1],
-                                                   zorder = abs(int(group)-_totalGroups)+1)
-                    _str_title = '%s.%s.%s.%s' % (hemi, curv, args.dataDir, surface)
-                    if b_showSkewKurtosis: _str_title = 'sk-%s' % _str_title
-                    if b_groupSubset:      _str_title = '%s-%s' % (''.join(_l_group), _str_title)
+                            _d_plot[self._str_gid], = plot(_v0, _v1,
+                                            color = self._l_color[int(self._str_gid)-1],
+                                           marker = self._l_marker[int(self._str_gid)-1],
+                                               ls = 'None',
+                                           zorder = 10)
+                            self.deviation_plot(
+                                self._d_boundary[self._str_gid]\
+                                                [self._str_hemi]\
+                                                [self._str_surface]\
+                                                [self._str_curv]\
+                                                [self._str_ctype],
+                                        facecolor = self._l_color[int(self._str_gid)-1],
+                                           zorder = abs(int(self._str_gid)-_totalGroups)+1)
+                    if b_groupSubset: self._str_gid = ''.join(_l_group)
+                    else: self._str_gid     = 'all'
+                    if not b_showSkewKurtosis: self._str_ctype = 'curvPosNeg'
+                    else: self._str_ctype   = 'curvSK'
+                    
+                    _str_title = self.filestem()
+#                     if b_showSkewKurtosis: _str_title = '%s-sk' % _str_title
+#                     if b_groupSubset:      _str_title = '%s-%s' % (_str_title, ''.join(_l_group))
                     pylab.title(_str_title)
-                    if ctype == 'sk':
+                    if self._str_ctype == 'sk':
                         pylab.xlabel('skew')
                         pylab.ylabel('kurtosis')
                     else:
                         pylab.xlabel('group mean cuvature')
                         pylab.ylabel('group expected occurrence')
-                    _str_graphFile = 'centroids-deviationContour%s-%s' % (self.symmetryID(), _str_title)
-                    self._log('Saving graphical plot to stem "%s"                    \r' % _str_graphFile)
+                    _str_graphFile = '%s-centroids-cloudCoreContour' % self.filestem()
+                    self._log('Saving graphical plot to stem "%s"                        \r' % _str_graphFile)
                     pylab.savefig('%s.png' % _str_graphFile, bbox_inches=0)
                     pylab.savefig('%s.pdf' % _str_graphFile, bbox_inches=0)
+                    pylab.close()
         if self._b_showPlots: pylab.show()
         self._log('\n')
 
@@ -907,7 +1020,8 @@ def synopsis(ab_shortOnly = False):
                             [--surface|-f <surface>]            \\
                             [--curv|-c <curvType>               \\
                             [--asymmetricalDeviations <center]  \\
-                            [--usePercentiles <percentile>]
+                            [--usePercentiles <percentile>]     \\
+                            [--convexHull|x]
     ''' % scriptName
   
     description =  '''
@@ -943,6 +1057,11 @@ def synopsis(ab_shortOnly = False):
         statistics, i.e. percentiles. The <percentiles> indicates the
         percentile ranges above and below the mean to consider in the 
         kernel boundary. Usually, 25 is a good choice.
+
+        --convexHull
+        If specified, set the statistics to use convex hulls drawn about
+        the statistical regions. This has the effect of "smoothing" the
+        contours, i.e. dumbell-type shapes become cigars.
 
         --colorSpec <colorSpec>
         A comma-separated string defining the colors to use for each
@@ -1106,6 +1225,11 @@ if __name__ == "__main__":
                         action='store',
                         default='',
                         help='Use percentile offset from mean in calculating cloud boundary')
+    parser.add_argument('--convexHulluse',
+                        dest='convexHulluse',
+                        action='store_true',
+                        default=False,
+                        help='Use a convex hull about the statistical boundary')
     args = parser.parse_args()
 
     OSshell = crun.crun()
@@ -1125,7 +1249,8 @@ if __name__ == "__main__":
                         usePercentiles          = args.usePercentiles,
                         logTo                   = 'CentroidCloud.log',
                         syslog                  = True,
-                        logTee                  = True
+                        logTee                  = True,
+                        convexHulluse           = args.convexHulluse
                         )
 
     Ccloud.verbosity(args.verbosity)
