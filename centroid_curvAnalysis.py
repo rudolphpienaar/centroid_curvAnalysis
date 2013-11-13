@@ -541,7 +541,7 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         misc.file_writeOnce('%s-cloudCoreOverlapAreaDensity.txt' % \
                                 (_str_fileName), 
                             '%10.3f%10.3f%10.3f\n' % \
-                                (f_or, f_ol, f_or * f_ol * 100))
+                                (f_or, f_ol, f_or * f_ol / 100))
 
         # Particulate density...
         l_pntr, f_dr  = FNNDSC_CentroidCloud.groupIntersections_pointMembership_find(p_overlap, pnts1)
@@ -552,7 +552,7 @@ class FNNDSC_CentroidCloud(base.FNNDSC):
         misc.file_writeOnce('%s-cloudCoreOverlapParticleDensity.txt' % \
                                 (_str_fileName), 
                             '%10.3f%10.3f%10.3f\n' % \
-                                (f_dr, f_dl, f_dr * f_dl * 100))
+                                (f_dr, f_dl, f_dr * f_dl / 100))
          
 
     def groupTtest_determine(self, **kwargs):
